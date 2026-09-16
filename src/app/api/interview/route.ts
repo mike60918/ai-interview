@@ -1,4 +1,4 @@
-import { openai, OPENAI_MODEL } from "@/lib/openai";
+import { getOpenAIClient, OPENAI_MODEL } from "@/lib/openai";
 
 // 使用者若沒有指定題數時的預設題數
 const DEFAULT_QUESTIONS = 3;
@@ -132,6 +132,10 @@ export async function POST(request: Request) {
       ];
 
   try {
+    // 在真正處理請求時才建立 OpenAI client，缺少 API 金鑰的錯誤
+    // 也會被下面的 catch 接住，回傳乾淨的 500 錯誤，而不是讓整個
+    // 服務崩潰（build 階段更不會因此失敗）
+    const openai = getOpenAIClient();
     // 呼叫 OpenAI Chat Completions API 取得下一題或最終評分
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
