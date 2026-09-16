@@ -81,7 +81,7 @@ export default function LandingPage() {
                 href="/interview"
                 className="rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 px-7 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition-transform hover:scale-[1.02]"
               >
-                免費開始模擬面試
+                開始模擬面試
               </Link>
               <a
                 href="#how-it-works"
@@ -214,7 +214,7 @@ export default function LandingPage() {
               href="/interview"
               className="mt-8 inline-block rounded-full bg-white px-8 py-3 text-sm font-semibold text-indigo-700 shadow-lg transition-transform hover:scale-[1.02]"
             >
-              免費開始模擬面試
+              開始模擬面試
             </Link>
           </div>
         </section>
