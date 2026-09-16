@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Award, RotateCcw, Sparkles } from "lucide-react";
+import { Award, KeyRound, RotateCcw, Sparkles } from "lucide-react";
 import { Logo } from "@/components/logo";
+import { ApiKeyDialog } from "@/components/api-key-dialog";
+import { loadStoredApiKey, saveStoredApiKey, OPENAI_API_KEY_HEADER } from "@/lib/api-key";
 
 const MIN_QUESTIONS = 1;
 const MAX_QUESTIONS = 10;
@@ -44,11 +46,41 @@ export default function InterviewPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // 進到頁面時，從瀏覽器 localStorage 讀回使用者先前存過的 API Key。
+  // 必須用 effect 而非 useState 的 lazy initializer：SSR 階段沒有
+  // window/localStorage，若在 render 階段就讀取會導致 client 端第一次
+  // hydrate 的結果跟伺服器算出來的不一致（hydration mismatch）。
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 同步瀏覽器 localStorage 這種外部系統，是本規則允許的用途
+    setApiKey(loadStoredApiKey());
+  }, []);
+
+  function handleSaveApiKey(key: string) {
+    saveStoredApiKey(key);
+    setApiKey(key);
+    setSettingsOpen(false);
+  }
+
+  // 統一處理 API 呼叫失敗：如果是跟 API Key 有關的錯誤（缺少或無效），
+  // 就順手把設定彈窗打開，讓使用者能直接補上正確的金鑰
+  function handleApiError(err: unknown) {
+    const message = err instanceof Error ? err.message : "發生未知錯誤";
+    setError(message);
+    if (message.includes("API Key")) {
+      setSettingsOpen(true);
+    }
+  }
 
   async function callInterviewApi(nextMessages: ChatMessage[]) {
     const res = await fetch("/api/interview", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        [OPENAI_API_KEY_HEADER]: apiKey,
+      },
       body: JSON.stringify({ jobDescription, messages: nextMessages, totalQuestions }),
     });
 
@@ -65,6 +97,11 @@ export default function InterviewPage() {
   }
 
   async function handleStart() {
+    if (!apiKey.trim()) {
+      setError("請先設定你的 OpenAI API Key");
+      setSettingsOpen(true);
+      return;
+    }
     if (!jobDescription.trim()) {
       setError("請先輸入職缺描述");
       return;
@@ -77,7 +114,7 @@ export default function InterviewPage() {
       setQuestionNumber(data.questionNumber);
       setStage("interview");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "發生未知錯誤");
+      handleApiError(err);
     } finally {
       setLoading(false);
     }
@@ -108,7 +145,7 @@ export default function InterviewPage() {
         setQuestionNumber(data.questionNumber);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "發生未知錯誤");
+      handleApiError(err);
     } finally {
       setLoading(false);
     }
@@ -135,14 +172,32 @@ export default function InterviewPage() {
       <header className="sticky top-0 z-10 border-b border-zinc-200/70 bg-white/80 backdrop-blur-md dark:border-zinc-800/70 dark:bg-black/60">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <Logo />
-          <Link
-            href="/"
-            className="text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
-          >
-            ← 返回首頁
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="設定 OpenAI API Key"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-300 text-zinc-500 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              <KeyRound className="h-4 w-4" />
+            </button>
+            <Link
+              href="/"
+              className="text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+            >
+              ← 返回首頁
+            </Link>
+          </div>
         </div>
       </header>
+
+      <ApiKeyDialog
+        key={settingsOpen ? "open" : "closed"}
+        open={settingsOpen}
+        initialValue={apiKey}
+        onClose={() => setSettingsOpen(false)}
+        onSave={handleSaveApiKey}
+      />
 
       <main className="flex flex-1 flex-col items-center bg-zinc-50 px-4 py-12 dark:bg-black">
         <div className="w-full max-w-2xl">
@@ -162,6 +217,20 @@ export default function InterviewPage() {
               </div>
 
               <div className="flex flex-col gap-5 rounded-3xl border border-zinc-200 bg-white p-8 shadow-xl shadow-zinc-900/5 dark:border-zinc-800 dark:bg-zinc-900">
+                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+                  <span className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
+                    <KeyRound className="h-4 w-4" />
+                    {apiKey ? "OpenAI API Key 已設定" : "尚未設定 OpenAI API Key"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsOpen(true)}
+                    className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                  >
+                    {apiKey ? "更換" : "立即設定"}
+                  </button>
+                </div>
+
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                     職缺描述

@@ -1,4 +1,5 @@
-import { getOpenAIClient, OPENAI_MODEL } from "@/lib/openai";
+import { createOpenAIClient, isOpenAIAuthError, OPENAI_MODEL } from "@/lib/openai";
+import { OPENAI_API_KEY_HEADER } from "@/lib/api-key";
 
 // 使用者若沒有指定題數時的預設題數
 const DEFAULT_QUESTIONS = 3;
@@ -87,6 +88,16 @@ function buildTranscript(messages: ChatMessage[]) {
 
 // /api/interview 的 POST 處理函式：前端每次「開始面試」或「送出一題答案」都會呼叫這裡一次
 export async function POST(request: Request) {
+  // BYOK（Bring Your Own Key）模式：這支 API 完全不讀取伺服器端的環境變數，
+  // 每次請求都必須由前端透過自訂 header 帶上使用者自己的 OpenAI API Key。
+  const apiKey = request.headers.get(OPENAI_API_KEY_HEADER)?.trim();
+  if (!apiKey) {
+    return Response.json(
+      { error: "請先在設定中輸入你的 OpenAI API Key" },
+      { status: 401 }
+    );
+  }
+
   // 解析 request body 的 JSON，格式錯誤就直接回 400
   let body: RequestBody;
   try {
@@ -132,10 +143,8 @@ export async function POST(request: Request) {
       ];
 
   try {
-    // 在真正處理請求時才建立 OpenAI client，缺少 API 金鑰的錯誤
-    // 也會被下面的 catch 接住，回傳乾淨的 500 錯誤，而不是讓整個
-    // 服務崩潰（build 階段更不會因此失敗）
-    const openai = getOpenAIClient();
+    // 用「這次請求帶來的金鑰」建立專屬的 OpenAI client（不快取、不共用）
+    const openai = createOpenAIClient(apiKey);
     // 呼叫 OpenAI Chat Completions API 取得下一題或最終評分
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
@@ -165,8 +174,15 @@ export async function POST(request: Request) {
       totalQuestions,
     });
   } catch (error) {
-    // 呼叫 OpenAI 失敗（例如金鑰錯誤、額度用盡、網路問題）時，記錄錯誤並回傳 500
     console.error("OpenAI API error:", error);
+    // 使用者自己填的金鑰有可能無效或過期，這種情況給明確提示，
+    // 讓前端可以導回設定畫面；其他錯誤（額度用盡、網路問題等）就回傳一般性訊息
+    if (isOpenAIAuthError(error)) {
+      return Response.json(
+        { error: "OpenAI API Key 無效或已過期，請重新確認設定" },
+        { status: 401 }
+      );
+    }
     return Response.json({ error: "呼叫 OpenAI API 時發生錯誤" }, { status: 500 });
   }
 }
